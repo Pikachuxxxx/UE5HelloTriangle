@@ -3,6 +3,12 @@ How to render a Hello Triangle in UE5 using it's RHI and FSceneViewExtensionBase
 
 **Engine Version: 5.4 Source Build**
 
+## TUTORIAL
+WIP...
+
+## Demo
+![UE5HelloTriangle](https://github.com/user-attachments/assets/c1a83bf0-0d7a-42ef-b513-e05f1821292e)
+
 ## Notes:
 - https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/Subsystems/UEngineSubsystem?application_version=5.4
 > UEngineSubsystems are dynamic and will be initialized when the module is loaded if necessary. This means that after StartupModule() is called on the module containing a subsystem, the subsystem collection with instantiate and initialize the subsystem **automatically**. If the subsystem collection is created post module load then the instances will be created at collection initialization time.
