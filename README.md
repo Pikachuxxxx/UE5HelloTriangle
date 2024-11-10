@@ -120,10 +120,128 @@ struct FHelloVertex
 };
 ```
 
-Now is a greate time to create 2 new files called HelloTriangleShader.h/cpp these will contain the code to create the shaders and other rendering resources like Vertex/index buffers etc.
+Now is a great time to create 2 new files called HelloTriangleShader.h/cpp these will contain the code to create the shaders and other rendering resources like Vertex/index buffers etc.
 
 Add this struct to the the file, we will use this later to fill the vertex buffer with vertices data.
 
+Now before we craete render resources let's start with the Shader C++ code. We need to define class for each sahder stage that derives from `FGlobalShader`. This is how it looks.
+
+Vertex Shader
+```C++
+BEGIN_SHADER_PARAMETER_STRUCT(FTriangleVSParams, )
+END_SHADER_PARAMETER_STRUCT()
+class FTriangleVS : public FGlobalShader
+{
+public:
+    DECLARE_GLOBAL_SHADER(FTriangleVS);
+    using FParameters = FTriangleVSParams;
+    SHADER_USE_PARAMETER_STRUCT(FTriangleVS, FGlobalShader);
+
+    static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters) {
+        return true;
+    }
+};
+```
+Since we have no uniforms and bindinable resources the BEGIN_SHADER_PARAMETER_STRUCT and END_SHADER_PARAMETER_STRUCT doesn't define any parameters. This is how C++ and HLSL talk about dindable parameters in the shader.
+
+Pixel Shader
+```C++
+BEGIN_SHADER_PARAMETER_STRUCT(FTrianglePSParams, )
+    RENDER_TARGET_BINDING_SLOTS()
+END_SHADER_PARAMETER_STRUCT()
+class FTrianglePS : public FGlobalShader
+{
+    DECLARE_GLOBAL_SHADER(FTrianglePS);
+    using FParameters = FTrianglePSParams;
+    SHADER_USE_PARAMETER_STRUCT(FTrianglePS, FGlobalShader)
+};
+```
+We define RENDER_TARGET_BINDING_SLOTS() in the Pixel Shader to tell that we have output render targets to write to. Next go ahead and define the shader implementation.
+```C++
+IMPLEMENT_SHADER_TYPE(, FTriangleVS, TEXT("/CustomShaders/Private/HelloTriangle.usf"), TEXT("TriangleVS"), SF_Vertex);
+IMPLEMENT_SHADER_TYPE(, FTrianglePS, TEXT("/CustomShaders/Private/HelloTriangle.usf"), TEXT("TrianglePS"), SF_Pixel);
+```
+`IMPLEMENT_SHADER_TYPE` takes in the Shader Class, The location of the shader file (this is a Virtual File Path, relative to the folder you maped during plugin initialization.), then the Main function to call to the in shader file, in our case we named it TriangleVS and TrianglePS for each shader stage and then finally what shader stage it is, pixel, vertex, compute, geometry etc.
+
+## Setting up render resources
+
+Now that we have fonned the shaders ready and setup let's now create the rendering resources, we will need a VertexBuffer to hold the Trinagle Vertex Data, another resource to tell the Vertex Element layout (this defines how the resources are layed out and passed to the GPU) and finally a Index buffer (used only for demo purposes).
+
+Add these to the HelloTriangleShaders.h
+```C++
+class FTriangleVertexBuffer : public FVertexBuffer
+{
+public:
+    void InitRHI(FRHICommandListBase& RHICmdList);
+};
+
+class FTriangleIndexBuffer : public FIndexBuffer
+{
+public:
+    void InitRHI(FRHICommandListBase& RHICmdList);
+};
+
+class FTrianlgeVertexBufferElementDesc : public FRenderResource
+{
+public:
+    FVertexDeclarationRHIRef VertexDeclarationRHI;
+    virtual ~FTrianlgeVertexBufferElementDesc() {}
+
+    virtual void InitRHI(FRHICommandListBase& RHICmdList);
+    virtual void ReleaseRHI();
+};
+
+extern HELLOTRIANGLE_API TGlobalResource<FTriangleVertexBuffer> GTriangleVertexBuf;
+extern HELLOTRIANGLE_API TGlobalResource<FTrianlgeVertexBufferElementDesc> GTriangleVertexBufElementDesc;
+extern HELLOTRIANGLE_API TGlobalResource<FTriangleIndexBuffer> GTriangleIndexBuf;
+```
+Now the C++ file looks like this.
+HelloTriangleShaders.cpp
+
+```C++
+TGlobalResource<FTriangleVertexBuffer> GTriangleVertexBuf;
+TGlobalResource<FTrianlgeVertexBufferElementDesc> GTriangleVertexBufElementDesc;
+TGlobalResource<FTriangleIndexBuffer> GTriangleIndexBuf;
+
+void FTriangleVertexBuffer::InitRHI(FRHICommandListBase& RHICmdList)
+{
+    TResourceArray<FHelloVertex, VERTEXBUFFER_ALIGNMENT> Vertices;
+    Vertices.SetNumUninitialized(3);
+    Vertices[0].Position = FVector2f(0.0f, 0.75f);
+    Vertices[0].Color = FVector4f(1, 0, 0, 1);
+    Vertices[1].Position = FVector2f(0.75, -0.75);
+    Vertices[1].Color = FVector4f(0, 1, 0, 1);
+    Vertices[2].Position = FVector2f(-0.75, -0.75);
+    Vertices[2].Color = FVector4f(0, 0, 1, 1);
+    FRHIResourceCreateInfo CreateInfo(TEXT("FScreenRectangleVertexBuffer"), &Vertices);
+    VertexBufferRHI = RHICmdList.CreateVertexBuffer(Vertices.GetResourceDataSize(), BUF_Static, CreateInfo);
+}
+
+void FTriangleIndexBuffer::InitRHI(FRHICommandListBase& RHICmdList)
+{
+    const uint16 Indices[] = { 0, 1, 2 };
+    TResourceArray<uint16, INDEXBUFFER_ALIGNMENT> IndexBuffer;
+    uint32 NumIndices = UE_ARRAY_COUNT(Indices);
+    IndexBuffer.AddUninitialized(NumIndices);
+    FMemory::Memcpy(IndexBuffer.GetData(), Indices, NumIndices * sizeof(uint16));
+    FRHIResourceCreateInfo CreateInfo(TEXT("FTriangleIndexBuffer"), &IndexBuffer);
+    IndexBufferRHI = RHICmdList.CreateIndexBuffer(sizeof(uint16), IndexBuffer.GetResourceDataSize(), BUF_Static, CreateInfo);
+}
+
+void FTrianlgeVertexBufferElementDesc::InitRHI(FRHICommandListBase& RHICmdList)
+{
+    FVertexDeclarationElementList Elements;
+    uint16 Stride = sizeof(FHelloVertex);
+    Elements.Add(FVertexElement(0, STRUCT_OFFSET(FHelloVertex, Position), VET_Float2, 0, Stride));
+    Elements.Add(FVertexElement(0, STRUCT_OFFSET(FHelloVertex, Color), VET_Float4, 1, Stride));
+    VertexDeclarationRHI = PipelineStateCache::GetOrCreateVertexDeclaration(Elements);
+}
+```
+
+Here we create and overide their Init methods to create the resources.
+
+## Setting up the rendering code using RDG pass
+Now we have everything we need to start with rndering let's return to the HelloTriangleSceneViewExtension.cpp class and start using the RDG to create a new pass to render out triangle.
 
 
 
@@ -140,5 +258,3 @@ Add this struct to the the file, we will use this later to fill the vertex buffe
 - https://dev.epicgames.com/community/learning/knowledge-base/0ql6/unreal-engine-using-sceneviewextension-to-extend-the-rendering-system
 - https://dev.epicgames.com/documentation/en-us/unreal-engine/render-dependency-graph-in-unreal-engine
 - https://dev.epicgames.com/documentation/en-us/unreal-engine/programming-subsystems-in-unreal-engine
-
-
