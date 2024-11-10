@@ -356,7 +356,7 @@ Add this to it and instantiate it.
 ```C++
 HelloTriangleViewExtension = FSceneViewExtensions::NewExtension<FHelloTriangleViewExtension>();
 ```
-## Notes:
+### Note about UEngineSubsystem:
 - https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/Subsystems/UEngineSubsystem?application_version=5.4
 > UEngineSubsystems are dynamic and will be initialized when the module is loaded if necessary. This means that after StartupModule() is called on the module containing a subsystem, the subsystem collection with instantiate and initialize the subsystem **automatically**. If the subsystem collection is created post module load then the instances will be created at collection initialization time.
 
