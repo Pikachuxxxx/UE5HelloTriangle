@@ -243,7 +243,115 @@ Here we create and overide their Init methods to create the resources.
 ## Setting up the rendering code using RDG pass
 Now we have everything we need to start with rndering let's return to the HelloTriangleSceneViewExtension.cpp class and start using the RDG to create a new pass to render out triangle.
 
+Step1: Get the input scene texture to draw onto, use inject the rendering before anykind of post processing is done, which is why re override the function `PrePostProcessPass_RenderThread` in our FHelloTriangleViewExtension class.
 
+```C++
+checkSlow(View.bIsViewInfo);
+    const FIntRect Viewport = static_cast<const FViewInfo&>(View).ViewRect;
+
+    // Get the scene texture
+    Inputs.Validate();
+
+    const FSceneViewFamily& ViewFamily = *View.Family;
+
+    // We need to make sure to take Windows and Scene scale into account.
+    float ScreenPercentage = ViewFamily.SecondaryViewFraction;
+
+    if (ViewFamily.GetScreenPercentageInterface())
+    {
+        DynamicRenderScaling::TMap<float> UpperBounds = ViewFamily.GetScreenPercentageInterface()->GetResolutionFractionsUpperBound();
+        ScreenPercentage *= UpperBounds[GDynamicPrimaryResolutionFraction];
+    }
+
+    const FIntRect PrimaryViewRect = UE::FXRenderingUtils::GetRawViewRectUnsafe(View);
+
+    FScreenPassTexture SceneColor((*Inputs.SceneTextures)->SceneColorTexture, PrimaryViewRect);
+
+    if (!SceneColor.IsValid())
+    {
+        return;
+    }
+
+```
+No we have done the setup we start with adding a new pass called "Triangle Pass" to the RDG.
+- We create markers for GPU debugging
+- Create the VS/PS shader instance using the GlobalShaderMap
+- Bind the RenderTarget to the PixelShaderParams, in this case render to the scene texture, we we bind the scene color texture, and we clear it at start.
+- Now that the shaders are bound add a pass to the RDG using `GraphBuilder.AddPass`, make sure you pass the necessary params to the AddPass pambda function that you want to refernce later during the execution phase.
+
+Coming to the rendering code:
+ - Create the PSO:
+   - bind shaders
+   - specify DepthStencil, Rasterization, BlendState, MSAA etc params
+   - Specify the Shaders to use bind both the VS and PS
+   - Specofy the primitive type, in this case we use triangle list
+- Set the viewport and scissor rect
+- Bind the PSO to Command List
+- Bind the shader params for each shader stage in this case only the PS
+- Issue draw calls, we only draw 3 vertices for the triangle
+```C++
+{
+        RDG_EVENT_SCOPE(GraphBuilder, "TrianglePass");
+        RDG_GPU_STAT_SCOPE(GraphBuilder, TrianglePass);
+
+        FGlobalShaderMap* GlobalShaderMap = GetGlobalShaderMap(GMaxRHIFeatureLevel);
+        // Shader Parameter Setup, nothing for VS
+        FTrianglePSParams* PixelShaderParams = GraphBuilder.AllocParameters<FTrianglePSParams>();
+
+        // Set the Render Target In this case is the Scene Color, clear the scene RT
+        PixelShaderParams->RenderTargets[0] = FRenderTargetBinding(SceneColor.Texture, ERenderTargetLoadAction::EClear);
+
+        // Create FTriangleVS/PS Shader refs
+        TShaderMapRef<FTrianglePS> PixelShader(GlobalShaderMap);
+        check(PixelShader.IsValid());
+        TShaderMapRef<FTriangleVS> VertexShader(GlobalShaderMap);
+        check(VertexShader.IsValid());
+
+        ClearUnusedGraphResources(PixelShader, PixelShaderParams); // ???
+
+        // Adding the RDG pass
+        GraphBuilder.AddPass(
+            RDG_EVENT_NAME("HelloTriangle"),
+            PixelShaderParams,
+            ERDGPassFlags::Raster,
+            [PixelShaderParams, PrimaryViewRect, VertexShader, PixelShader](FRHICommandList& RHICmdList)
+            {
+                // Create the Graphics Pipeline
+                FGraphicsPipelineStateInitializer GraphicsPSOInit;
+                // create stuff with default template args
+                GraphicsPSOInit.BlendState = TStaticBlendState<>::GetRHI();
+                GraphicsPSOInit.RasterizerState = TStaticRasterizerState<>::GetRHI();
+                GraphicsPSOInit.DepthStencilState = TStaticDepthStencilState<>::GetRHI();
+                GraphicsPSOInit.PrimitiveType = PT_TriangleList;
+                GraphicsPSOInit.BoundShaderState.VertexShaderRHI = VertexShader.GetVertexShader();
+                GraphicsPSOInit.BoundShaderState.PixelShaderRHI = PixelShader.GetPixelShader();
+                GraphicsPSOInit.BoundShaderState.VertexDeclarationRHI = GTriangleVertexBufElementDesc.VertexDeclarationRHI;
+
+                RHICmdList.ApplyCachedRenderTargets(GraphicsPSOInit);
+
+                // Set viewport/scissor rect
+                RHICmdList.SetViewport(
+                    PrimaryViewRect.Min.X, PrimaryViewRect.Min.Y, 0.0f,
+                    PrimaryViewRect.Max.X, PrimaryViewRect.Max.Y, 1.0f);
+
+                RHICmdList.SetScissorRect(true, PrimaryViewRect.Min.X, PrimaryViewRect.Min.Y, PrimaryViewRect.Max.X, PrimaryViewRect.Max.Y);
+
+                // this creates and caches the PSO using the init desc
+                SetGraphicsPipelineState(RHICmdList, GraphicsPSOInit, 0); // no stencil ref
+
+                // Bind shader params for each stage
+                SetShaderParameters(RHICmdList, PixelShader, PixelShader.GetPixelShader(), *PixelShaderParams);
+
+                // Bind VB/IB and draw
+                RHICmdList.SetStreamSource(0, GTriangleVertexBuf.VertexBufferRHI, 0);
+                RHICmdList.DrawIndexedPrimitive(GTriangleIndexBuf.IndexBufferRHI, 0, 0, 3, 0, 1, 1);
+            });
+    }
+```
+And voila! you have a Triangle!!!
+
+## Closing notes
+If you have any queries or suggestions or fixes for the tutorial please feel free to open and issues.
 
 ## Demo
 ![UE5HelloTriangle](https://github.com/user-attachments/assets/c1a83bf0-0d7a-42ef-b513-e05f1821292e)
